@@ -1,0 +1,70 @@
+---
+- name: Configure one QuickLab guest through QEMU Guest Agent
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    role_name: "{{ lookup('ansible.builtin.env', 'QUICKLAB_ROLE') }}"
+    is_windows: "{{ role_name in ['dc', 'win11'] }}"
+    agent_runner:
+      - "{{ ansible_playbook_python }}"
+      - "{{ playbook_dir }}/qga_setup.py"
+      - "{{ role_name }}"
+  tasks:
+    - name: Validate the selected role
+      ansible.builtin.assert:
+        that:
+          - role_name in ['dc', 'soc', 'app', 'win11']
+        fail_msg: Run this playbook through quicklab.py provision ROLE.
+
+    - name: Check guest-agent connectivity
+      ansible.builtin.command:
+        argv: "{{ agent_runner + ['--ping'] }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Configure the app or SOC guest
+      ansible.builtin.command:
+        argv: "{{ agent_runner }}"
+        stdin: '{}'
+      when: not is_windows
+
+    - name: Obtain the DC's recovery password
+      ansible.builtin.pause:
+        prompt: Enter a strong Directory Services Restore Mode password for lab.test
+        echo: false
+      register: dsrm
+      when: role_name == 'dc' and not ansible_check_mode
+      no_log: true
+
+    - name: Obtain the domain-join account
+      ansible.builtin.pause:
+        prompt: Enter an authorized domain join user (e.g. Administrator@lab.test)
+        echo: false
+      register: join_user
+      when: role_name == 'win11' and not ansible_check_mode
+      no_log: true
+
+    - name: Obtain the domain-join password
+      ansible.builtin.pause:
+        prompt: Enter the domain join password
+        echo: false
+      register: join_password
+      when: role_name == 'win11' and not ansible_check_mode
+      no_log: true
+
+    - name: Configure Windows and complete any required restarts
+      when: is_windows and not ansible_check_mode
+      block:
+        - name: Run Windows setup with the supplied credentials
+          ansible.builtin.command:
+            argv: "{{ agent_runner }}"
+            stdin: >-
+              {{ ({'dsrm_password': dsrm.user_input} if role_name == 'dc' else
+                  {'join_user': join_user.user_input, 'join_password': join_password.user_input}) | to_json }}
+          no_log: true
+      rescue:
+        - name: Report a safe recovery path without logging credentials
+          ansible.builtin.fail:
+            msg: Windows provisioning failed. Open the VM console and run the guest setup script interactively to see the error. A restart or a manual check of AD DNS may be needed.

@@ -1,0 +1,3 @@
+# QuickLab TODO
+
+- [ ] **Verify ISO downloads before continuing setup.** When `prepare --download` fetches an ISO, compare its checksum with the trusted vendor-published checksum for that exact image before moving it into the lab's media directory. If the checksum does not match, warn the user (identify the ISO and show the expected and actual checksums), exit with a nonzero status, and do not mark the image ready or reuse it on a later run. If no trusted checksum is available, stop and explain the manual verification path rather than treating the download as verified. Add tests for a valid checksum, a mismatch, and a missing checksum.
